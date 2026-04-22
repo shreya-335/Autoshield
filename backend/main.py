@@ -98,3 +98,53 @@ async def analyze_runtime(url: str, db: Session = Depends(database.get_db)):
         db.commit()
 
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard-summary")
+def get_summary(db: Session = Depends(database.get_db)):
+    # Count vulnerabilities by severity
+    high = db.query(models.Vulnerability).filter(models.Vulnerability.severity == "HIGH").count()
+    medium = db.query(models.Vulnerability).filter(models.Vulnerability.severity == "MEDIUM").count()
+    low = db.query(models.Vulnerability).filter(models.Vulnerability.severity == "LOW").count()
+    
+    # Simple Risk Score Calculation (0-100)
+    # Risk = (0.5 * High) + (0.3 * Medium) + (0.1 * Low) capped at 100
+    score = min(100, (high * 15) + (medium * 8) + (low * 3))
+    
+    return {
+        "risk_score": 100 - score, # 100 is perfect, 0 is dangerous
+        "stats": {"high": high, "medium": medium, "low": low},
+        "total_scans": db.query(models.Scan).count()
+    }
+
+    # Add these endpoints to your backend/main.py
+
+@app.get("/projects")
+def get_projects(db: Session = Depends(database.get_db)):
+    # Returns all projects for the dropdown
+    return db.query(models.Project).all()
+
+@app.get("/dashboard-summary/{project_id}")
+def get_project_summary(project_id: str, db: Session = Depends(database.get_db)):
+    # Filter scans and vulnerabilities by project_id
+    scans = db.query(models.Scan).filter(models.Scan.project_id == project_id).all()
+    scan_ids = [s.id for s in scans]
+    
+    vulns = db.query(models.Vulnerability).filter(models.Vulnerability.scan_id.in_(scan_ids)).all()
+    
+    high = len([v for v in vulns if v.severity == "HIGH"])
+    medium = len([v for v in vulns if v.severity == "MEDIUM"])
+    low = len([v for v in vulns if v.severity == "LOW"])
+    
+    # Trend Data (Simulated for Demo - in real life, group by created_at)
+    trend = [
+        {"month": "Jan", "count": 5}, {"month": "Feb", "count": high + medium}, {"month": "Mar", "count": high}
+    ]
+    
+    score = min(100, (high * 15) + (medium * 8) + (low * 3))
+    
+    return {
+        "risk_score": 100 - score,
+        "stats": {"high": high, "medium": medium, "low": low},
+        "trend": trend,
+        "recent_vulns": vulns[:5] # Last 5 for the table
+    }
