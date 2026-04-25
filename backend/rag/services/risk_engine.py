@@ -192,6 +192,7 @@ def build_final_verdict(
         # ── LLM insights ─────────────────────────────────────────────
         "key_risks": llm_result.get("key_risks", []),
         "recommended_fix": llm_result.get("recommended_fix", ""),
+        "fix_code": llm_result.get("fix_code", ""),  
         "reasoning": llm_result.get("reasoning", ""),
         "llm_confidence": llm_result.get("confidence", 0.5),
         "llm_available": llm_result.get("llm_available", False),
@@ -199,6 +200,7 @@ def build_final_verdict(
         "score_components": risk["components"],
         # ── Context snippets for debugging ────────────────────────────
         "context_chunks": rag_result.get("context_chunks", []),
+        "code_snippet": code_snippet,
     }
 
 

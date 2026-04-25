@@ -19,6 +19,7 @@ from crawler import scan_website_runtime
 # RAG imports
 from rag.retrieval.retriever import retrieve_context
 from rag.services.rag_service import analyze_vulnerability, analyze_batch
+from rag.services.llm_service import generate_fix_for_snippet
 
 app = FastAPI(title="AutoShield API", version="2.0.0")
 
@@ -39,19 +40,31 @@ app.add_middleware(
 # ──────────────────────────────────────────────────────────────────────
 class RAGRequest(BaseModel):
     code_snippet: str = Field(..., description="The vulnerable code or message")
-    cwe_id: str = Field(default="CWE-Unknown", description="CWE ID e.g. CWE-89")
-    severity: str = Field(default="medium", description="low | medium | high | critical")
-    vuln_type: str = Field(default="", description="Vulnerability type label")
+    cwe_id: str = Field(default="CWE-Unknown")
+    severity: str = Field(default="medium")
+    vuln_type: str = Field(default="")
     file_path: str = Field(default="unknown")
     line: int = Field(default=0)
     tool: str = Field(default="unknown")
-    use_llm: bool = Field(default=True, description="Set false to skip LLM for speed")
+    use_llm: bool = Field(default=True)
 
 
 class FullScanRequest(BaseModel):
-    """Request body for the full tri-layer scan of a project path."""
     path: str = Field(..., description="Absolute path to the project directory")
-    use_llm: bool = Field(default=True, description="Enable LLM reasoning (slower, richer)")
+    use_llm: bool = Field(default=True)
+
+
+class ApplyFixRequest(BaseModel):
+    file_path: str = Field(..., description="Absolute path to the file to fix")
+    line: int = Field(..., description="Line number of the vulnerability (1-indexed)")
+    original_code: str = Field(..., description="The vulnerable code snippet")
+    fix_code: str = Field(..., description="The corrected code to apply")
+
+
+class GenerateFixRequest(BaseModel):
+    code_snippet: str
+    vuln_type: str = ""
+    cwe_id: str = "CWE-Unknown"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -71,14 +84,10 @@ def health_check():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Static Code Analysis (Path A only — fast)
+# Static Code Analysis (Path A only)
 # ──────────────────────────────────────────────────────────────────────
 @app.post("/analyze-code")
 def analyze_code(path: str, db: Session = Depends(database.get_db)):
-    """
-    Runs Semgrep + ESLint only. No RAG, no LLM.
-    Use /analyze-full for the complete tri-layer analysis.
-    """
     try:
         findings = scanner.run_scanners(path)
         for f in findings:
@@ -92,22 +101,11 @@ def analyze_code(path: str, db: Session = Depends(database.get_db)):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# FULL TRI-LAYER ANALYSIS (Path A + B + C)  ← MAIN NEW ENDPOINT
+# FULL TRI-LAYER ANALYSIS
 # ──────────────────────────────────────────────────────────────────────
 @app.post("/analyze-full")
 def analyze_full(request: FullScanRequest, db: Session = Depends(database.get_db)):
-    """
-    Complete AutoShield analysis pipeline:
-      Path A: Semgrep + ESLint (static)
-      Path B: RAG retrieval (OWASP/CVE/CWE context)
-      Path C: LLM reasoning (expert validation)
-      → Conflict Resolution → Risk Scoring → Final Verdict
-
-    Returns enriched findings with risk scores, OWASP categories,
-    CVE references, conflict traces, and fix recommendations.
-    """
     try:
-        # ── Step 1: Run static scanners (Path A) ──────────────────────
         static_findings = scanner.run_scanners(request.path)
 
         if not static_findings:
@@ -119,7 +117,6 @@ def analyze_full(request: FullScanRequest, db: Session = Depends(database.get_db
                 "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0},
             }
 
-        # Save raw findings to DB
         scan_record = models.Scan(scan_type="full", status="processing")
         db.add(scan_record)
         db.flush()
@@ -128,10 +125,7 @@ def analyze_full(request: FullScanRequest, db: Session = Depends(database.get_db
             db_vuln = models.Vulnerability(scan_id=scan_record.id, **f)
             db.add(db_vuln)
 
-        # ── Step 2: Run RAG + LLM on each finding (Path B + C) ────────
         enriched = analyze_batch(static_findings, use_llm=request.use_llm)
-
-        # ── Step 3: Build summary ──────────────────────────────────────
         summary = _build_summary(enriched)
 
         scan_record.status = "completed"
@@ -155,11 +149,6 @@ def analyze_full(request: FullScanRequest, db: Session = Depends(database.get_db
 # ──────────────────────────────────────────────────────────────────────
 @app.post("/rag/analyze")
 def rag_analyze(payload: RAGRequest):
-    """
-    Analyzes a single vulnerability snippet through the full pipeline.
-    Use this for on-demand analysis from the VS Code extension sidebar
-    or when a user right-clicks a finding.
-    """
     try:
         result = analyze_vulnerability(
             code_snippet=payload.code_snippet,
@@ -177,11 +166,96 @@ def rag_analyze(payload: RAGRequest):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# GENERATE FIX (Gemini-powered)
+# ──────────────────────────────────────────────────────────────────────
+@app.post("/rag/generate-fix")
+def generate_fix(payload: GenerateFixRequest):
+    """
+    Given a code snippet and vulnerability type, generate a targeted fix
+    using Gemini. Returns fix_code, explanation, and step-by-step guidance.
+    """
+    try:
+        result = generate_fix_for_snippet(
+            code_snippet=payload.code_snippet,
+            vuln_type=payload.vuln_type,
+            cwe_id=payload.cwe_id,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# APPLY FIX (writes to disk)
+# ──────────────────────────────────────────────────────────────────────
+@app.post("/apply-fix")
+def apply_fix(payload: ApplyFixRequest):
+    """
+    Applies an AI-generated fix to a file on disk.
+    Reads the file, replaces the vulnerable snippet, writes back.
+    Returns success status and the diff preview.
+    """
+    import os
+
+    if not os.path.isfile(payload.file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {payload.file_path}")
+
+    try:
+        with open(payload.file_path, "r", encoding="utf-8", errors="replace") as f:
+            original_content = f.read()
+
+        # Strategy 1: Replace the exact snippet if found
+        if payload.original_code.strip() and payload.original_code.strip() in original_content:
+            new_content = original_content.replace(
+                payload.original_code.strip(),
+                payload.fix_code.strip(),
+                1  # Replace first occurrence only
+            )
+            strategy = "exact_match"
+        else:
+            # Strategy 2: Replace lines around the reported line number
+            lines = original_content.splitlines(keepends=True)
+            vuln_lines = payload.original_code.strip().splitlines()
+            n = len(vuln_lines)
+            line_idx = max(0, payload.line - 1)
+
+            # Try to find the snippet near the reported line
+            best_start = line_idx
+            for search_start in range(max(0, line_idx - 3), min(len(lines), line_idx + 3)):
+                window = "".join(lines[search_start:search_start + n]).strip()
+                if window == payload.original_code.strip():
+                    best_start = search_start
+                    break
+
+            fix_lines = payload.fix_code.strip().splitlines(keepends=True)
+            if not fix_lines[-1].endswith("\n"):
+                fix_lines[-1] += "\n"
+
+            lines[best_start:best_start + n] = fix_lines
+            new_content = "".join(lines)
+            strategy = "line_replacement"
+
+        with open(payload.file_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+        return {
+            "success": True,
+            "strategy": strategy,
+            "file_path": payload.file_path,
+            "message": f"Fix applied successfully using {strategy}",
+        }
+
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"Permission denied: {payload.file_path}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────────
 # RAG HEALTH + STATS
 # ──────────────────────────────────────────────────────────────────────
 @app.get("/rag/health")
 def rag_health():
-    """Check RAG system status and document count."""
     try:
         from rag.vector_store.chroma_client import get_collection_stats
         stats = get_collection_stats()
@@ -282,7 +356,6 @@ def get_summary(db: Session = Depends(database.get_db)):
 # Helpers
 # ──────────────────────────────────────────────────────────────────────
 def _build_summary(results: List[dict]) -> dict:
-    """Counts findings by final risk category."""
     summary = {"critical": 0, "high": 0, "medium": 0, "low": 0, "informational": 0}
     for r in results:
         cat = r.get("risk_category", "MEDIUM").upper()
