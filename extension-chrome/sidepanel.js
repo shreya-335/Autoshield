@@ -633,8 +633,8 @@ function setBtnsDisabled(disabled) {
 
 function scoreColor(s) {
   if (s >= 85) return '#cc3333';
-  if (s >= 65) return '#cc7700';
-  if (s >= 40) return '#b88800';
+  if (s >= 65) return '#ffe8c9';
+  if (s >= 40) return '#ffbb02';
   return '#4a8a3a';
 }
 
