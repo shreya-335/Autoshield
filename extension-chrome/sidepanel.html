@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoShield</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+    :root {
+      --bg:         #0d0d0d;
+      --bg2:        #141414;
+      --bg3:        #1a1a1a;
+      --border:     #252525;
+      --border2:    #333333;
+      --amber:      #e8a000;
+      --amber-dim:  #9a6a00;
+      --amber-lo:   #2a1f00;
+      --text:       #cc9000;
+      --text-dim:   #886000;
+      --text-lo:    #4a3500;
+      --red:        #cc3333;
+      --red-bg:     #1a0505;
+      --orange:     #cc7700;
+      --orange-bg:  #1a0e00;
+      --yellow:     #b88800;
+      --yellow-bg:  #181200;
+      --green:      #4a8a3a;
+      --green-bg:   #071008;
+      --green-dim:  #152010;
+      --blue:       #3a6a9a;
+      --blue-bg:    #070f18;
+      --purple:     #7a4a9a;
+      --font-mono:  'IBM Plex Mono', 'Cascadia Code', monospace;
+      --font-sans:  'IBM Plex Sans', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ─────────────────────────────── */
+    .header {
+      padding: 10px 12px 8px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 100;
+    }
+
+    .logo {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      color: var(--amber);
+      text-transform: uppercase;
+    }
+    .logo-dim { color: var(--amber-dim); font-weight: 300; }
+
+    .url-badge {
+      font-size: 8px;
+      color: var(--text-lo);
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Tabs ────────────────────────────────── */
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+    }
+
+    .tab-btn {
+      padding: 8px 4px;
+      background: none;
+      border: none;
+      color: var(--text-lo);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.12s;
+    }
+    .tab-btn:hover { color: var(--text-dim); }
+    .tab-btn.active { color: var(--amber); border-bottom-color: var(--amber); background: var(--bg3); }
+
+    /* ── Toolbar ─────────────────────────────── */
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tbtn {
+      background: var(--bg2);
+      color: var(--text-dim);
+      border: none;
+      padding: 7px 2px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 8px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 500;
+      transition: background 0.1s, color 0.1s;
+    }
+    .tbtn:hover { background: var(--bg3); color: var(--amber); }
+    .tbtn.primary { color: var(--amber); }
+    .tbtn.primary:hover { background: var(--amber-lo); }
+    .tbtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── Status ──────────────────────────────── */
+    .statusbar {
+      padding: 4px 12px;
+      font-size: 9px;
+      color: var(--text-lo);
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border);
+      min-height: 22px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .statusbar.scanning { color: var(--amber-dim); }
+    .statusbar.done     { color: var(--text-dim); }
+    .statusbar.error    { color: var(--red); }
+
+    .dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--amber);
+      flex-shrink: 0;
+      animation: blink 1s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1}50%{opacity:.15} }
+
+    /* ── Summary Bar ─────────────────────────── */
+    .summary {
+      display: none;
+      gap: 1px;
+      background: var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .summary.visible { display: flex; }
+
+    .sum-cell {
+      flex: 1;
+      background: var(--bg2);
+      padding: 5px 2px;
+      text-align: center;
+    }
+    .sum-n  { font-size: 14px; font-weight: 600; display: block; line-height: 1; }
+    .sum-l  { font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-lo); margin-top: 2px; display: block; }
+    .n-crit { color: #cc3333; }
+    .n-high { color: #cc7700; }
+    .n-med  { color: var(--yellow); }
+    .n-low  { color: var(--green); }
+    .n-info { color: var(--blue); }
+
+    /* ── Tab panels ──────────────────────────── */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Empty State ─────────────────────────── */
+    .empty {
+      padding: 40px 16px;
+      text-align: center;
+      color: var(--text-lo);
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      line-height: 2.5;
+    }
+    .empty-icon { font-size: 24px; display: block; margin-bottom: 8px; opacity: 0.4; }
+
+    /* ── Card ────────────────────────────────── */
+    .card { border-bottom: 1px solid var(--border); }
+
+    .card-head {
+      padding: 7px 10px 7px 12px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 8px;
+      align-items: start;
+      transition: background 0.08s;
+    }
+    .card-head:hover { background: var(--bg2); }
+
+    /* ── Card title row (title + fix pill side by side) ── */
+    .card-title-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Fix available pill ──────────────────── */
+    .fix-pill {
+      display: inline-block;
+      font-size: 7px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      padding: 2px 5px;
+      border: 1px solid var(--green);
+      color: var(--green);
+      background: var(--green-bg);
+      border-radius: 2px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .sev-tag {
+      font-size: 7px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      padding: 2px 4px;
+      border: 1px solid;
+      text-transform: uppercase;
+      margin-top: 1px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .sev-CRITICAL { color:#cc3333; border-color:#cc3333; background:#1a0505; }
+    .sev-HIGH     { color:#cc7700; border-color:#cc7700; background:#1a0e00; }
+    .sev-MEDIUM   { color:#b88800; border-color:#b88800; background:#181200; }
+    .sev-LOW      { color:#4a8a3a; border-color:#4a8a3a; background:#071008; }
+    .sev-INFO     { color:#3a6a9a; border-color:#3a6a9a; background:#070f18; }
+    .sev-REVIEW   { color:#7a4a9a; border-color:#7a4a9a; background:#0f070f; }
+    .sev-OK       { color:#3a6a3a; border-color:#3a6a3a; background:#070f07; }
+
+    .card-title {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.4;
+    }
+    .card-meta {
+      font-size: 9px;
+      color: var(--text-lo);
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .score-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 4px;
+    }
+    .score-track { flex: 1; height: 2px; background: var(--border2); }
+    .score-fill  { height: 100%; }
+    .score-num   { font-size: 8px; color: var(--text-lo); flex-shrink: 0; width: 32px; text-align: right; }
+    .chevron { font-size: 8px; color: var(--text-lo); transition: transform 0.15s; padding-top: 2px; }
+    .chevron.open { transform: rotate(90deg); }
+
+    /* ── Card Body ───────────────────────────── */
+    .card-body { display: none; background: var(--bg2); border-top: 1px solid var(--border); }
+    .card-body.open { display: block; }
+
+    .body-sec {
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .body-sec:last-child { border-bottom: none; }
+
+    .sec-label {
+      font-size: 8px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--amber-dim);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .body-text {
+      font-size: 10px;
+      color: var(--text-dim);
+      line-height: 1.55;
+      font-family: var(--font-sans);
+    }
+
+    /* ── How to fix hint (slightly brighter) ─── */
+    .fix-hint {
+      color: #a07830;
+      font-family: var(--font-sans);
+      font-size: 10px;
+      line-height: 1.6;
+    }
+
+    /* ── Offline / fallback notice ───────────── */
+    .offline-note {
+      font-size: 9px;
+      color: var(--text-lo);
+      line-height: 1.7;
+      font-family: var(--font-sans);
+    }
+
+    /* ── Inner tabs (Analysis | Fix Code) ────── */
+    .inner-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+    }
+    .inner-tab {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-lo);
+      font-family: var(--font-mono);
+      font-size: 8px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 5px 4px;
+      cursor: pointer;
+      transition: all 0.1s;
+    }
+    .inner-tab:hover { color: var(--text-dim); }
+    .inner-tab.active {
+      color: var(--amber);
+      border-bottom-color: var(--amber);
+      background: var(--bg2);
+    }
+
+    /* ── Compliance specific ─────────────────── */
+    .asset-list { list-style: none; }
+    .asset-item {
+      padding: 4px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      font-size: 9px;
+    }
+    .asset-item:last-child { border-bottom: none; }
+    .asset-status {
+      font-size: 7px;
+      padding: 1px 4px;
+      border: 1px solid;
+      border-radius: 2px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .st-free     { color: var(--green); border-color: var(--green); }
+    .st-review   { color: var(--yellow); border-color: var(--yellow); }
+    .st-issue    { color: var(--red); border-color: var(--red); }
+    .st-external { color: var(--blue); border-color: var(--blue); }
+
+    .asset-url {
+      color: var(--text-lo);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+      font-size: 8px;
+    }
+
+    /* ── Fix block ───────────────────────────── */
+    .fix-wrap { border-top: 1px solid var(--green-dim); }
+    .fix-head {
+      padding: 4px 12px;
+      font-size: 8px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #5aaa4a;
+      background: var(--green-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .fix-code {
+      padding: 8px 12px;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: #a8cc98;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 160px;
+      overflow-y: auto;
+      background: #040a03;
+      line-height: 1.5;
+    }
+
+    /* ── Copy button ─────────────────────────── */
+    .copy-btn {
+      background: none;
+      border: 1px solid var(--green);
+      color: var(--green);
+      font-family: var(--font-mono);
+      font-size: 7px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: background 0.1s, color 0.1s;
+    }
+    .copy-btn:hover {
+      background: var(--green-dim);
+      color: #7acc6a;
+    }
+
+    /* ── Section header (within tab) ─────────── */
+    .section-header {
+      padding: 5px 12px;
+      font-size: 8px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-lo);
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .section-count {
+      font-size: 9px;
+      color: var(--amber-dim);
+      font-weight: 600;
+    }
+
+    /* ── Spinner ─────────────────────────────── */
+    .spin {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border: 1px solid var(--border2);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: rot 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 3px;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+
+    ::-webkit-scrollbar       { width: 3px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">Auto<span class="logo-dim">Shield</span> <span style="font-size:8px;color:var(--text-lo);font-weight:300">v2.0</span></div>
+    <div class="url-badge" id="urlBadge">No page scanned</div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-security" onclick="switchTab('security')">⚡ Security</button>
+    <button class="tab-btn" id="tab-compliance" onclick="switchTab('compliance')">© Compliance</button>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button class="tbtn primary" id="btnScan" onclick="runScan()">[ Scan ]</button>
+    <button class="tbtn" id="btnDeep" onclick="runDeepScan()">[ Deep ]</button>
+    <button class="tbtn" id="btnClear" onclick="clearAll()">[ Clear ]</button>
+  </div>
+
+  <!-- Status -->
+  <div id="statusbar" class="statusbar">Ready — open a page and click Scan</div>
+
+  <!-- Debug log -->
+  <div id="log" style="max-height:120px;overflow-y:auto;padding:8px;border-top:1px solid #333;font-family:monospace;"></div>
+
+  <!-- Summary -->
+  <div id="summary" class="summary">
+    <div class="sum-cell"><span class="sum-n n-crit" id="s-crit">0</span><span class="sum-l">Crit</span></div>
+    <div class="sum-cell"><span class="sum-n n-high" id="s-high">0</span><span class="sum-l">High</span></div>
+    <div class="sum-cell"><span class="sum-n n-med"  id="s-med">0</span><span class="sum-l">Med</span></div>
+    <div class="sum-cell"><span class="sum-n n-low"  id="s-low">0</span><span class="sum-l">Low</span></div>
+  </div>
+
+  <!-- Security Tab -->
+  <div id="panel-security" class="tab-panel active">
+    <div id="security-out">
+      <div class="empty">
+        <span class="empty-icon">🔒</span>
+        Click <strong>[Scan]</strong> to analyze<br/>the current page for<br/>security vulnerabilities
+      </div>
+    </div>
+  </div>
+
+  <!-- Compliance Tab -->
+  <div id="panel-compliance" class="tab-panel">
+    <div id="compliance-out">
+      <div class="empty">
+        <span class="empty-icon">©</span>
+        Click <strong>[Scan]</strong> to check<br/>media assets for<br/>copyright & compliance
+      </div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

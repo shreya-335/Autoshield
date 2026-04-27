@@ -1,16 +1,16 @@
 # backend/main.py
 
 import asyncio
-import sys
 
-if sys.platform.startswith("win"):
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+# ✅ REQUIRED for Playwright on Windows (must be at top, before anything async)
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import List, Optional
+
 import models
 import database
 import scanner

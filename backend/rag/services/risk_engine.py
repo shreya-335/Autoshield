@@ -22,11 +22,11 @@ SEVERITY_BASE_SCORES = {
 
 # LLM adjustment factors
 LLM_ADJUSTMENT_SCORES = {
-    2: 15,    # +2 → big increase
-    1: 8,     # +1 → small increase
-    0: 0,     # no change
-    -1: -8,   # -1 → small reduction
-    -2: -15,  # -2 → big reduction
+    2: 15,
+    1: 8,
+    0: 0,
+    -1: -8,
+    -2: -15,
 }
 
 # Exploitability bonus
@@ -45,24 +45,109 @@ ATTACK_VECTOR_BONUS = {
 }
 
 
+# ── Static fix knowledge base (used when LLM is disabled) ────────────────────
+# Keyed by CWE ID. Gives developers actionable guidance even on quick scan.
+CWE_STATIC_FIXES: Dict[str, Dict] = {
+    "CWE-79": {
+        "recommended_fix": "Sanitize all user-supplied data before inserting it into the DOM. Use textContent instead of innerHTML, or a trusted sanitization library like DOMPurify.",
+        "fix_code": "// Instead of:\nelement.innerHTML = userInput;\n\n// Use:\nelement.textContent = userInput;\n// Or with DOMPurify:\nelement.innerHTML = DOMPurify.sanitize(userInput);",
+        "key_risks": ["Cross-site scripting (XSS)", "Session hijacking via cookie theft", "Malicious script injection"],
+        "reasoning": "innerHTML assignments with unsanitized input are the leading cause of XSS vulnerabilities. Attackers can inject <script> tags or event handlers to execute arbitrary JavaScript in the victim's browser.",
+    },
+    "CWE-89": {
+        "recommended_fix": "Use parameterized queries or prepared statements instead of string concatenation to build SQL queries.",
+        "fix_code": "# Instead of:\nquery = f\"SELECT * FROM users WHERE id = {user_id}\"\n\n# Use parameterized query:\ncursor.execute(\"SELECT * FROM users WHERE id = %s\", (user_id,))",
+        "key_risks": ["SQL injection leading to data theft", "Authentication bypass", "Database destruction"],
+        "reasoning": "SQL injection allows attackers to manipulate database queries by injecting malicious SQL through user-controlled input.",
+    },
+    "CWE-95": {
+        "recommended_fix": "Never use eval() or Function() with user-controlled data. Parse JSON with JSON.parse(), execute logic with explicit conditionals.",
+        "fix_code": "// Instead of:\neval(userInput);\n\n// For JSON:\nconst data = JSON.parse(userInput);\n\n// For dynamic keys:\nconst allowedActions = { 'run': runFn, 'stop': stopFn };\nif (allowedActions[userInput]) allowedActions[userInput]();",
+        "key_risks": ["Arbitrary code execution", "Remote code execution if input reaches server", "Complete application compromise"],
+        "reasoning": "eval() executes arbitrary strings as code. Any user-controlled data passed to eval() gives attackers direct code execution capability.",
+    },
+    "CWE-319": {
+        "recommended_fix": "Force HTTPS for all form submissions. Redirect HTTP to HTTPS at the server level and set the Strict-Transport-Security header.",
+        "fix_code": "<!-- Change form action from http:// to https:// -->\n<form action=\"https://yourdomain.com/login\" method=\"POST\">\n\n<!-- In your server config (nginx): -->\n<!-- add_header Strict-Transport-Security \"max-age=31536000\"; -->",
+        "key_risks": ["Credentials intercepted in transit", "Man-in-the-middle attacks", "Password theft on public networks"],
+        "reasoning": "Submitting passwords over HTTP sends them in plaintext. Anyone on the same network (coffee shop WiFi, ISP) can read the credentials.",
+    },
+    "CWE-352": {
+        "recommended_fix": "Add a CSRF token to all state-changing forms. Generate a unique per-session token server-side and verify it on submission.",
+        "fix_code": "<!-- Add hidden CSRF token to form -->\n<form method=\"POST\" action=\"/submit\">\n  <input type=\"hidden\" name=\"csrf_token\" value=\"{{ csrf_token }}\">\n  ...\n</form>\n\n# Server-side verification (Python/Flask example):\nif request.form['csrf_token'] != session['csrf_token']:\n    abort(403)",
+        "key_risks": ["Cross-site request forgery", "Unauthorized state changes on behalf of authenticated users"],
+        "reasoning": "Without CSRF tokens, attackers can trick authenticated users into submitting forms to your site from a malicious third-party page.",
+    },
+    "CWE-311": {
+        "recommended_fix": "Serve all resources (images, scripts, stylesheets) over HTTPS. Update all src and href attributes to use https:// or protocol-relative URLs.",
+        "fix_code": "<!-- Instead of: -->\n<script src=\"http://cdn.example.com/lib.js\"></script>\n<img src=\"http://example.com/image.png\">\n\n<!-- Use: -->\n<script src=\"https://cdn.example.com/lib.js\"></script>\n<img src=\"https://example.com/image.png\">\n<!-- Or protocol-relative: -->\n<script src=\"//cdn.example.com/lib.js\"></script>",
+        "key_risks": ["Mixed content blocks resource loading in modern browsers", "HTTP resources can be intercepted and replaced"],
+        "reasoning": "Browsers block or warn about HTTP resources loaded on HTTPS pages. Attackers can inject malicious code by intercepting the unencrypted HTTP request.",
+    },
+    "CWE-829": {
+        "recommended_fix": "Add integrity and crossorigin attributes to all external script and stylesheet tags (Subresource Integrity).",
+        "fix_code": "<!-- Generate SRI hash: https://www.srihash.org/ -->\n<script\n  src=\"https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js\"\n  integrity=\"sha384-wBPduPAZNkQmG4WLqbPYFqNBQovUPaGPwQZHIxpCAE2BXLN9lqQr9rcBhW0CQDM\"\n  crossorigin=\"anonymous\">\n</script>",
+        "key_risks": ["Supply chain attack via CDN compromise", "Malicious script injection if CDN is hacked"],
+        "reasoning": "Without SRI, if a CDN is compromised, attackers can replace the hosted file with malicious code that runs on your site.",
+    },
+    "CWE-693": {
+        "recommended_fix": "Add a Content Security Policy header or meta tag that whitelists trusted sources for scripts, styles, and other resources.",
+        "fix_code": "<!-- Add to <head>: -->\n<meta http-equiv=\"Content-Security-Policy\"\n  content=\"default-src 'self'; script-src 'self' https://trusted-cdn.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;\">\n\n<!-- Or set server header (nginx): -->\n<!-- add_header Content-Security-Policy \"default-src 'self'\"; -->",
+        "key_risks": ["No browser-enforced protection against XSS", "Malicious scripts from any origin can execute"],
+        "reasoning": "CSP is a browser security mechanism that restricts which resources can be loaded. Without it, successful XSS attacks have no additional mitigation layer.",
+    },
+    "CWE-1021": {
+        "recommended_fix": "Add the sandbox attribute to all iframes embedding third-party content to restrict their capabilities.",
+        "fix_code": "<!-- Restrictive sandbox (recommended): -->\n<iframe src=\"https://external.com\"\n  sandbox=\"allow-scripts allow-same-origin\"\n  referrerpolicy=\"no-referrer\">\n</iframe>\n\n<!-- For display-only content (most restrictive): -->\n<iframe src=\"https://external.com\" sandbox></iframe>",
+        "key_risks": ["Clickjacking attacks via iframe overlay", "Third-party content accessing parent page context"],
+        "reasoning": "Unsandboxed iframes can navigate the top-level page, access cookies, or overlay deceptive UI on top of your content.",
+    },
+    "CWE-922": {
+        "recommended_fix": "Never store sensitive data (tokens, passwords, PII) in localStorage or sessionStorage. Use HttpOnly cookies for auth tokens or keep them in memory only.",
+        "fix_code": "// Instead of storing JWT in localStorage:\nlocalStorage.setItem('token', jwt);\n\n// Store auth state in memory only:\nlet authToken = null; // lives only for this page session\nauthToken = jwt;\n\n// For persistent auth, use HttpOnly cookies set by the server:\n// Set-Cookie: token=xxx; HttpOnly; Secure; SameSite=Strict",
+        "key_risks": ["XSS can steal all localStorage data", "Tokens persist after logout if not explicitly cleared", "Accessible to any JavaScript on the page"],
+        "reasoning": "localStorage is accessible to all JavaScript on the page. A single XSS vulnerability allows complete theft of all stored data including auth tokens.",
+    },
+    "CWE-200": {
+        "recommended_fix": "Remove sensitive data from HTTP responses, error messages, and client-side code. Never expose internal paths, stack traces, or API keys in responses.",
+        "fix_code": "// Remove sensitive info from error responses:\n// Instead of:\nres.json({ error: err.stack, dbQuery: query });\n\n// Use:\nres.json({ error: 'An internal error occurred', code: 'ERR_500' });\n// Log details server-side only:\nconsole.error('[Internal]', err.stack);",
+        "key_risks": ["Information disclosure aids attacker reconnaissance", "Exposed stack traces reveal tech stack and file paths"],
+        "reasoning": "Detailed error messages and exposed internals give attackers a map of your application's structure and potential attack surfaces.",
+    },
+}
+
+# Fallback for unknown CWEs
+CWE_DEFAULT_FIX = {
+    "recommended_fix": "Review this finding manually. Apply the principle of least privilege, validate all inputs, and ensure output encoding is in place.",
+    "fix_code": "",
+    "key_risks": ["Security misconfiguration", "Potential data exposure"],
+    "reasoning": "This pattern was flagged by static analysis. Review the code in context to determine exploitability and apply appropriate mitigations.",
+}
+
+
+def get_static_fix(cwe_id: str, vuln_type: str = "") -> Dict:
+    """
+    Returns a static fix dict for a given CWE when LLM is unavailable.
+    Falls back to a generic recommendation if CWE not in the dictionary.
+    """
+    fix = CWE_STATIC_FIXES.get(cwe_id)
+    if fix:
+        return fix
+
+    # Try partial match (e.g. "CWE-79" matches "CWE-79: XSS")
+    for key, val in CWE_STATIC_FIXES.items():
+        if cwe_id.startswith(key) or key in cwe_id:
+            return val
+
+    return CWE_DEFAULT_FIX.copy()
+
+
 def compute_risk_score(
     final_severity: str,
     llm_result: Dict,
     rag_confidence: float,
     conflict_resolution: Dict,
 ) -> Dict:
-    """
-    Computes the final unified risk score.
-
-    Args:
-        final_severity: Resolved severity from conflict engine
-        llm_result: Full LLM analysis dict
-        rag_confidence: Average similarity score from RAG (0–1)
-        conflict_resolution: Output from conflict_resolver.resolve()
-
-    Returns:
-        Dict with risk_score (0–100), risk_category, and component breakdown.
-    """
     sev = final_severity.lower().strip()
 
     # ── Component A: Static Score (50% weight) ────────────────────────
@@ -76,14 +161,12 @@ def compute_risk_score(
 
     if llm_available:
         adjustment_pts = LLM_ADJUSTMENT_SCORES.get(llm_adjustment, 0)
-        # Scale by LLM confidence — low confidence = smaller adjustment
         component_b = adjustment_pts * llm_confidence * 0.20
     else:
-        component_b = 0.0  # No LLM → neutral
+        component_b = 0.0
 
     # ── Component C: RAG Context Score (20% weight) ───────────────────
-    # Higher RAG confidence = more reliable context
-    rag_score = rag_confidence * 100  # 0–100
+    rag_score = rag_confidence * 100
     component_c = rag_score * 0.20
 
     # ── Component D: Exploitability + Attack Vector (10% weight) ──────
@@ -94,10 +177,7 @@ def compute_risk_score(
     av_bonus = ATTACK_VECTOR_BONUS.get(attack_vector, 4)
     component_d = (exp_bonus + av_bonus) * 0.10
 
-    # ── Final Score ───────────────────────────────────────────────────
     raw_score = component_a + component_b + component_c + component_d
-
-    # Clamp to 0–100
     final_score = round(max(0, min(100, raw_score)), 1)
 
     return {
@@ -121,7 +201,6 @@ def compute_risk_score(
 
 
 def _score_to_category(score: float) -> str:
-    """Maps numeric risk score to human-readable category."""
     if score >= 85:
         return "CRITICAL"
     elif score >= 65:
@@ -135,7 +214,6 @@ def _score_to_category(score: float) -> str:
 
 
 def build_final_verdict(
-    # Static inputs
     code_snippet: str,
     cwe_id: str,
     static_severity: str,
@@ -143,14 +221,16 @@ def build_final_verdict(
     file_path: str,
     line: int,
     tool: str,
-    # Processed inputs
     rag_result: Dict,
     llm_result: Dict,
     conflict_resolution: Dict,
 ) -> Dict:
     """
     Assembles the complete final verdict combining all three paths.
-    This is the object returned to the VS Code extension / dashboard.
+
+    KEY CHANGE: When LLM is unavailable (use_llm=False or Groq down),
+    we fall back to the static CWE fix dictionary so the extension always
+    shows actionable fix guidance — never blank cards.
     """
     rag_confidence = float(rag_result.get("confidence", 0.5))
     final_severity = conflict_resolution.get("final_severity", static_severity)
@@ -162,8 +242,34 @@ def build_final_verdict(
         conflict_resolution=conflict_resolution,
     )
 
-    # Priority label for the extension sidebar
     priority = _risk_to_priority(risk["risk_score"])
+
+    # ── Populate fix fields ───────────────────────────────────────────
+    # Use LLM output if available; fall back to static CWE dictionary.
+    # This ensures every card shows a fix — even on quick scan without LLM.
+    llm_available = llm_result.get("llm_available", False)
+
+    if llm_available and llm_result.get("recommended_fix"):
+        # LLM gave us real content — use it
+        recommended_fix = llm_result.get("recommended_fix", "")
+        fix_code        = llm_result.get("fix_code", "")
+        key_risks       = llm_result.get("key_risks", [])
+        reasoning       = llm_result.get("reasoning", "")
+    else:
+        # LLM unavailable or returned empty — use static dictionary
+        static_fix  = get_static_fix(cwe_id, vuln_type)
+        recommended_fix = static_fix.get("recommended_fix", "")
+        fix_code        = static_fix.get("fix_code", "")
+        key_risks       = static_fix.get("key_risks", [])
+        # For reasoning, combine RAG context summary if available
+        ctx = rag_result.get("context_chunks", [])
+        if ctx:
+            first_chunk = ctx[0].get("text", "")[:200]
+            reasoning = static_fix.get("reasoning", "") + (
+                f"\n\nRAG context ({ctx[0].get('source','')}):\n{first_chunk}..." if first_chunk else ""
+            )
+        else:
+            reasoning = static_fix.get("reasoning", "")
 
     return {
         # ── Core identification ──────────────────────────────────────
@@ -189,13 +295,13 @@ def build_final_verdict(
         "owasp_category": rag_result.get("owasp_category", "Unknown"),
         "related_cves": rag_result.get("related_cves", []),
         "exploitability": conflict_resolution.get("rag_exploitability", "medium"),
-        # ── LLM insights ─────────────────────────────────────────────
-        "key_risks": llm_result.get("key_risks", []),
-        "recommended_fix": llm_result.get("recommended_fix", ""),
-        "fix_code": llm_result.get("fix_code", ""),  
-        "reasoning": llm_result.get("reasoning", ""),
+        # ── Fix & insights (LLM or static fallback) ───────────────────
+        "key_risks": key_risks,
+        "recommended_fix": recommended_fix,
+        "fix_code": fix_code,
+        "reasoning": reasoning,
         "llm_confidence": llm_result.get("confidence", 0.5),
-        "llm_available": llm_result.get("llm_available", False),
+        "llm_available": llm_available,
         # ── Score breakdown ───────────────────────────────────────────
         "score_components": risk["components"],
         # ── Context snippets for debugging ────────────────────────────
@@ -205,7 +311,6 @@ def build_final_verdict(
 
 
 def _risk_to_priority(score: float) -> str:
-    """Maps risk score to display priority for VS Code extension."""
     if score >= 85:
         return "P0 — Fix Immediately"
     elif score >= 65:
